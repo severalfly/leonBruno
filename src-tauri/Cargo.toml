@@ -1,6 +1,6 @@
 [package]
 name = "leonbruno"
-version = "0.2.1"
+version = "0.2.2"
 description = "A lightweight, local-first, Git-friendly API client with curl paste support"
 authors = ["severalfly"]
 edition = "2021"

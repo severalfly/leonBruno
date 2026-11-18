@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.2] - 2026-11-18
+
+### 修复
+
+- **导入 OpenCollection 新格式仓库失败**：用户的 Bruno 仓库用新格式，每个集合目录里是 `opencollection.yml`（含 `info.name`）而不是旧的 `bruno.json` / `collection.bru`，导致「导入仓库」识别失败。现在 `probe_bruno_repo` / `scan_root` 都认 `opencollection.yml` / `opencollection.yaml`，集合名从 `info.name` 读取，并把 `opencollection.yml` 自身排除出请求列表（它是集合定义，不是请求）。仓库根下的多个集合子目录全部识别。
+- **递归读取子目录分组的请求**：Bruno 用子目录给请求分组（如 `act11/account/folder.yml`、`act11/act/...`），原来只读集合第一层会漏掉绝大多数请求。现在递归读取所有层级的 `.yml`/`.bru`（跳过 `environments`/`.git`/`node_modules` 与 `folder.yml` 定义文件），请求 id 用相对路径前缀保证跨子目录重名不冲突。实测用户真实仓库 `D://work//docs//bruno`：识别 28 个集合、658 个请求（此前只读到 26 个），其中 19 个重名文件靠路径区分。
+- **URL scheme 智能补全**：0.2.1 为修 `baidu.com` 把裸域名统一补 `https://`，但 Bruno 集合里常见的 `localhost:8080/...`、`192.168.x.x`、`10.x`、`172.x`、`*.local` 会被错误补成 https 导致本地服务请求失败。现在本地/内网地址补 `http://`，公网补 `https://`。
+
+### 验证
+
+- 新增单测 `opencollection_collection_name_and_skip`：验证 `opencollection.yml` 的 `info.name` 被识别为集合名、该文件被跳过、同目录 `.yml` 请求被正确解析。
+- vue-tsc + vite + Tauri 构建通过。
+
 ## [0.2.1] - 2026-11-18
 
 ### 修复与改进

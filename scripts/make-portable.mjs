@@ -26,8 +26,8 @@ writeFileSync(join(out, 'README.txt'), `leonBruno ${version} - Windows 便携版
 【标签页】全局扁平标签；切换集合/环境不会重组标签页
 【数据】集合用 Bruno 原生格式存在 data/workspace/：默认 OpenCollection .yml，
   可切换 .bru；含 bruno.json / collection.bru / environments/*.bru，Bruno 可直接打开
-【导入】侧边栏「导入仓库」填入本机已有 Bruno 集合目录，直接读原目录不复制，
-  Bruno 与 leonBruno 共用同一份 Git 仓库
+【导入】侧边栏「导入仓库」填入本机已有 Bruno 仓库目录，直接读原目录不复制，
+  支持 opencollection.yml（新格式）/ bruno.json（传统）/ .bru 混合，仓库根下多个集合全识别
 【变量】支持 {{变量名}} 插值；环境变量存 data/workspace/.env.json
 【界面】左侧集合树 → 中间请求编辑 → 右侧响应；顶部切换环境
 生成时间：${new Date().toLocaleString('zh-CN')}

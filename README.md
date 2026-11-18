@@ -18,10 +18,10 @@ Bruno 很好用——离线、集合以纯文本 `.bru` 存本地、天然的 Gi
 - 请求编辑：GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS，URL、Query、Headers、Body、Bearer/Basic Auth
 - **cURL 粘贴导入**：`curl -X POST 'https://api...' -H 'Authorization: Bearer xxx' -d 'a=b'` 一键变成可编辑请求
 - 全局扁平标签页；左侧集合树、中间请求编辑、右侧响应
-- 本地集合：Bruno 原生 `.bru` / OpenCollection `.yml`，集合目录含 `bruno.json` + `collection.bru` + `environments/*.bru`，与 Bruno 双向兼容，可直接放进 Git 仓库
+- 本地集合：Bruno 原生 `.bru` / OpenCollection `.yml`，集合目录含 `opencollection.yml`（新格式）或 `bruno.json` + `collection.bru`（传统格式）+ `environments/*.bru`，与 Bruno 双向兼容，可直接放进 Git 仓库
 - `{{变量名}}` 插值 + 多环境切换，env 文件存在本地
 - 响应查看：状态码、耗时、大小、Body、Headers
-- **导入现有 Bruno 仓库**：侧边栏「导入仓库」填本机目录，直接读取原目录（不复制、不改你的 Git 仓库），Bruno 与 leonBruno 可共用同一份集合；可识别多层子目录集合
+- **导入现有 Bruno 仓库**：侧边栏「导入仓库」填本机目录，直接读取原目录（不复制、不改你的 Git 仓库），Bruno 与 leonBruno 可共用同一份集合；支持 OpenCollection YAML（`opencollection.yml`）、传统 `.bru`、混合布局，可识别仓库根下的多个集合子目录
 - 便携模式：exe 同目录 `portable.dat` 即把数据写到 `data/`，不写注册表
 
 ## 技术栈

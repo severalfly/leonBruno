@@ -33,9 +33,14 @@ fn err_chain(e: &reqwest::Error) -> String {
 pub async fn execute(req: ApiRequest, env: BTreeMap<String, String>, timeout_secs: u64) -> Result<ApiResponse, String> {
     let method = reqwest::Method::from_bytes(req.method.as_str().as_bytes()).map_err(|e| e.to_string())?;
     let mut url = interpolate(&req.url, &env);
-    // 没有 scheme 时补 https（现代站点普遍 https，http 会多一次 301 跳转且
-    // 在跨协议重定向时 reqwest 会丢掉 Authorization header）
-    if !url.starts_with("http://") && !url.starts_with("https://") { url = format!("https://{}", url); }
+    // 没有 scheme 时智能补全：localhost / 127.0.0.1 / 内网 IP / .local 走 http，
+    // 其余走 https（公网普遍 https，http 会 301 且在跨协议重定向时丢 header）
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        let host = url.split('/').next().unwrap_or("").split(':').next().unwrap_or("").to_lowercase();
+        let is_local = host=="localhost" || host=="127.0.0.1" || host=="::1" || host.ends_with(".local")
+            || host.starts_with("192.168.") || host.starts_with("10.") || host.starts_with("172.");
+        url = format!("{}://{}", if is_local {"http"} else {"https"}, url);
+    }
     if !req.params.is_empty() {
         let have_q = url.contains('?');
         let mut parts = Vec::new();

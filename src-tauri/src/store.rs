@@ -30,39 +30,64 @@ pub fn save_extra_roots(app: &tauri::AppHandle, roots: &[String]) -> Result<(), 
     fs::write(extra_roots_path(app), serde_json::to_string_pretty(roots).map_err(|e|e.to_string())?)
         .map_err(|e|e.to_string())
 }
+/// 判断一个目录是不是 Bruno 集合（三种格式：OpenCollection YAML / 传统 .bru / 混合）
+fn is_collection_dir(p: &Path) -> bool {
+    p.join("opencollection.yml").exists() || p.join("opencollection.yaml").exists()
+        || p.join("bruno.json").exists() || p.join("collection.bru").exists()
+}
+/// 读集合名：优先 opencollection.yml 的 info.name，其次 bruno.json 的 name，最后目录名
+fn collection_name(p: &Path) -> String {
+    for f in ["opencollection.yml", "opencollection.yaml"] {
+        if let Ok(txt)=fs::read_to_string(p.join(f)) {
+            // 极简 YAML 读取 info: 下的 name:
+            let mut in_info=false;
+            for line in txt.lines() {
+                let t=line.trim();
+                if t=="info:" { in_info=true; continue; }
+                if !t.is_empty() && !t.starts_with(' ') { in_info=false; }
+                if in_info && t.starts_with("name:") {
+                    let v=t[5..].trim().trim_matches(|c| c=='\'' || c=='"');
+                    if !v.is_empty() { return v.to_string(); }
+                }
+            }
+        }
+    }
+    if let Ok(txt)=fs::read_to_string(p.join("bruno.json")) {
+        if let Ok(v)=serde_json::from_str::<serde_json::Value>(&txt) {
+            if let Some(n)=v.get("name").and_then(|x|x.as_str()) { return n.to_string(); }
+        }
+    }
+    p.file_name().and_then(|n|n.to_str()).unwrap_or("collection").to_string()
+}
+
 /// 校验一个目录是否是 Bruno 集合（含 bruno.json 或 collection.bru 或 .bru/.yml 请求）
 pub fn probe_bruno_repo(path: &str) -> Result<(String, usize), String> {
     let p = PathBuf::from(path);
     if !p.is_dir() { return Err("目录不存在".into()); }
-    let name = fs::read_to_string(p.join("bruno.json")).ok()
-        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-        .and_then(|v| v.get("name").and_then(|n|n.as_str()).map(|s|s.to_string()))
-        .unwrap_or_else(|| p.file_name().and_then(|n|n.to_str()).unwrap_or("collection").to_string());
-    // 情况 A：本目录本身就是一个集合（含 bruno.json / collection.bru / *.bru）
-    let direct = p.join("bruno.json").exists() || p.join("collection.bru").exists() ||
+    let name = collection_name(&p);
+    // 情况 A：本目录本身就是一个集合（bruno.json / collection.bru / opencollection.yml / *.bru|*.yml）
+    let direct = p.join("bruno.json").exists() || p.join("collection.bru").exists()
+        || p.join("opencollection.yml").exists() ||
         fs::read_dir(&p).ok().map(|rd| rd.flatten().any(|e| {
             let fp = e.path();
             let ext=fp.extension().and_then(|x|x.to_str()).unwrap_or("");
             ext=="bru"||ext=="yml"||ext=="yaml"
         })).unwrap_or(false);
     if direct {
-        let cnt = fs::read_dir(&p).ok().map(|rd| rd.flatten().filter(|e| {
-            let fp = e.path();
-            let ext=fp.extension().and_then(|x|x.to_str()).unwrap_or("");
-            ext=="bru"||ext=="yml"||ext=="yaml"
-        }).count()).unwrap_or(0);
-        return Ok((name, cnt));
+        let mut reqs=Vec::new();
+        collect_requests(&p, &p, &mut reqs);
+        return Ok((name, reqs.len()));
     }
     // 情况 B：本目录是仓库根，子目录里各是集合
     let mut cnt=0usize;
     if let Ok(rd)=fs::read_dir(&p) {
         for e in rd.flatten() {
             if !e.path().is_dir() { continue; }
-            if e.path().join("bruno.json").exists() || e.path().join("collection.bru").exists() { cnt+=1; }
+            if is_collection_dir(&e.path()) { cnt+=1; }
         }
     }
     if cnt>0 { return Ok((name, cnt)); }
-    Err("目录里没有找到 Bruno 集合（需要 bruno.json / collection.bru / .bru 或 .yml 文件）".into())
+    Err("目录里没有找到 Bruno 集合（需要 opencollection.yml / bruno.json / collection.bru / .bru 或 .yml 文件）".into())
 }
 
 pub fn load_settings(app: &tauri::AppHandle) -> AppSettings {
@@ -109,6 +134,49 @@ pub fn load_workspace(app: &tauri::AppHandle) -> Workspace {
     return ws;
 }
 
+/// 递归收集集合目录下所有请求文件（含子目录分组）。
+/// 请求 id 用「相对路径/文件名」保证跨子目录唯一；name 保持文件里的原值。
+fn collect_requests(base: &Path, dir: &Path, out: &mut Vec<ApiRequest>) {
+    let Ok(entries)=fs::read_dir(dir) else { return };
+    for e in entries.flatten() {
+        let fp=e.path();
+        if fp.is_dir() {
+            // 跳过环境目录与版本控制/依赖目录
+            let n=fp.file_name().and_then(|x|x.to_str()).unwrap_or("");
+            if n=="environments"||n==".git"||n=="node_modules" { continue; }
+            collect_requests(base, &fp, out);
+            continue;
+        }
+        let ext=fp.extension().and_then(|x|x.to_str()).unwrap_or("").to_lowercase();
+        // opencollection.yml / folder.yml 是定义文件，不是请求
+        let stem=fp.file_stem().and_then(|x|x.to_str()).unwrap_or("");
+        if stem=="opencollection"||stem=="folder" { continue; }
+        if ext=="json" && fp.file_name().and_then(|n|n.to_str())!=Some("bruno.json") {
+            if let Ok(txt)=fs::read_to_string(&fp) {
+                if let Ok(mut r)=serde_json::from_str::<ApiRequest>(&txt) {
+                    let rel=fp.strip_prefix(base).unwrap_or(&fp);
+                    r.id=rel.to_string_lossy().replace('\\',"/").trim_end_matches(".json").to_string();
+                    let bru=crate::bru::stringify(&r);
+                    let _=fs::write(fp.with_extension("bru"),bru);
+                    let _=fs::remove_file(&fp);
+                    r.body_type = if r.body.is_empty(){"none".into()}else{r.body_type.clone()};
+                    out.push(r);
+                }
+            }
+            continue;
+        }
+        if ext=="yml"||ext=="yaml"||ext=="bru" {
+            if let Some(mut r)=parse_request_file(&fp) {
+                // 子目录里的请求：id 加相对路径前缀，避免同名冲突
+                let rel=fp.strip_prefix(base).unwrap_or(&fp);
+                let rels=rel.to_string_lossy().replace('\\',"/");
+                if rels.contains('/') { r.id=rels.trim_end_matches(&format!(".{}",ext)).to_string(); }
+                out.push(r);
+            }
+        }
+    }
+}
+
 /// 扫描一个根目录下的一层集合目录
 fn scan_root(root: &Path, ws: &mut Workspace) {
     if let Ok(entries) = fs::read_dir(&root) {
@@ -116,37 +184,11 @@ fn scan_root(root: &Path, ws: &mut Workspace) {
             let p=e.path();
             if !p.is_dir() || p.file_name().and_then(|n|n.to_str()).map(|n|n.starts_with('.')).unwrap_or(false) { continue; }
             let dir_name = match p.file_name().and_then(|n|n.to_str()) { Some(n)=>n.to_string(), None=>continue };
-            // 集合显示名优先取 bruno.json 的 name
-            let name = fs::read_to_string(p.join("bruno.json")).ok()
-                .and_then(|s|serde_json::from_str::<serde_json::Value>(&s).ok())
-                .and_then(|v|v.get("name").and_then(|n|n.as_str()).map(|s|s.to_string()))
-                .unwrap_or_else(||dir_name.clone());
+            // 集合显示名：opencollection.yml 的 info.name / bruno.json 的 name / 目录名
+            let name = collection_name(&p);
             let mut requests=Vec::new();
-            if let Ok(files)=fs::read_dir(&p) {
-                for f in files.flatten() {
-                    let fp=f.path();
-                    if !fp.is_file() { continue; }
-                    let ext=fp.extension().and_then(|x|x.to_str()).unwrap_or("").to_lowercase();
-                    if ext=="json" && fp.file_name().and_then(|n|n.to_str())!=Some("bruno.json") {
-                        // 0.1.0 legacy -> bru
-                        if let Ok(txt)=fs::read_to_string(&fp) {
-                            if let Ok(mut r)=serde_json::from_str::<ApiRequest>(&txt) {
-                                let stem=fp.file_stem().and_then(|s|s.to_str()).unwrap_or("req").to_string();
-                                r.id=stem.clone();
-                                let bru=crate::bru::stringify(&r);
-                                let _=fs::write(p.join(format!("{}.bru",stem)),bru);
-                                let _=fs::remove_file(&fp);
-                                r.body_type = if r.body.is_empty(){"none".into()}else{r.body_type.clone()};
-                                requests.push(r);
-                            }
-                        }
-                        continue;
-                    }
-                    if ext=="bru"||ext=="yml"||ext=="yaml" {
-                        if let Some(r)=parse_request_file(&fp) { requests.push(r); }
-                    }
-                }
-            }
+            // 递归读取集合目录下所有层级的请求（Bruno 用子目录做分组）
+            collect_requests(&p, &p, &mut requests);
             requests.sort_by(|a,b| a.seq.cmp(&b.seq).then_with(||a.name.cmp(&b.name)));
             // 集合自带 environments/*.bru：以文件名（去掉括号/空格）作为环境名合并
             let edir = p.join("environments");
@@ -335,6 +377,23 @@ settings:
         assert_eq!(r.url,"https://api.example.com/profile");
         assert_eq!(r.headers.len(),1);
     }
+    #[test]
+    fn opencollection_collection_name_and_skip() {
+        let d=std::env::temp_dir().join("lb-opencollection-fixture");
+        let _=fs::remove_dir_all(&d); fs::create_dir_all(&d).unwrap();
+        fs::write(d.join("opencollection.yml"),"opencollection: 1.0.0\n\ninfo://n  name: gtgj\nbundled: false\n").unwrap();
+        fs::write(d.join("query.yml"),"info://n  name: queryUserInfo\n  type: http\n  seq: 12\nhttp://n  method: GET\n  url: \"{{ip}}/x\"\n  auth: inherit\n").unwrap();
+        assert_eq!(collection_name(&d), "gtgj");
+        assert!(is_collection_dir(&d));
+        let mut ws=Workspace::default();
+        let root=d.parent().unwrap().to_path_buf();
+        scan_root(&root, &mut ws);
+        // opencollection.yml 必须被跳过，只留 1 条请求
+        let c=ws.collections.iter().find(|c| c.name=="gtgj").expect("collection gtgj");
+        assert_eq!(c.requests.len(),1);
+        assert_eq!(c.requests[0].name,"queryUserInfo");
+    }
+
     #[test]
     fn safe_name_sanitizes() {
         assert_eq!(safe_name("my:col/lection"),"my_col_lection");
