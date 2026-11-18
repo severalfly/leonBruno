@@ -1,4 +1,6 @@
+mod bru;
 mod curl;
+mod yamlreq;
 mod http;
 mod store;
 mod types;

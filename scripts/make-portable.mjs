@@ -24,8 +24,9 @@ writeFileSync(join(out, 'README.txt'), `leonBruno ${version} - Windows 便携版
 【cURL】点顶部「粘贴 cURL」，从浏览器 DevTools Copy as cURL 直接粘贴，
   自动识别 method / URL / Header / Query / Body / Bearer / Basic Auth
 【标签页】全局扁平标签；切换集合/环境不会重组标签页
-【数据】集合以纯文本 JSON 存在 data/workspace/ 下，一个集合一个目录、
-  一个请求一个 .json 文件，可直接放进 Git 仓库做版本控制
+【数据】集合用 Bruno 原生格式存在 data/workspace/：.bru（默认）或 OpenCollection
+  .yml，含 bruno.json / collection.bru / environments/*.bru，Bruno 可直接打开，
+  也可直接放进 Git 仓库做版本控制；设置里可切换保存格式
 【变量】支持 {{变量名}} 插值；环境变量存 data/workspace/.env.json
 【界面】左侧集合树 → 中间请求编辑 → 右侧响应；顶部切换环境
 生成时间：${new Date().toLocaleString('zh-CN')}

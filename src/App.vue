@@ -381,6 +381,7 @@ watch(() => settings.value.active_environment, () => { /* 环境切换即时生�
     <div v-if="showSettings" class="overlay" @click.self="showSettings = false">
       <div class="modal">
         <h3>设置</h3>
+        <label class="set-row">集合格式<select v-model="settings.format"><option value="bru">.bru（Bru 原生）</option><option value="yaml">.yml（OpenCollection YAML）</option></select></label>
         <label class="set-row">超时（秒）<input v-model.number="settings.timeout_secs" type="number" min="1" max="600" /></label>
         <label class="set-row">当前环境<select v-model="settings.active_environment"><option value="">(无)</option><option v-for="(_, k) in workspace.environments" :key="k" :value="k">{{ k }}</option></select></label>
         <button class="mini" @click="openDir">打开本地集合目录</button>

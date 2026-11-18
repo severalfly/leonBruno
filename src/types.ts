@@ -9,6 +9,7 @@ export interface Auth {
 export interface ApiRequest {
   id: string
   name: string
+  seq?: number
   method: HttpMethod
   url: string
   headers: KeyValue[]
@@ -34,11 +35,13 @@ export interface AppSettings {
   workspace_dir: string
   active_environment: string
   timeout_secs: number
+  format?: string
 }
 export function blankRequest(): ApiRequest {
   return {
     id: `r${Date.now()}`,
     name: 'New Request',
+    seq: 0,
     method: 'get',
     url: '',
     headers: [{ key: '', value: '', enabled: true }],

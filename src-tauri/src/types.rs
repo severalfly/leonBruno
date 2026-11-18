@@ -47,6 +47,7 @@ pub struct Auth {
 pub struct ApiRequest {
     pub id: String,
     pub name: String,
+    #[serde(default)] pub seq: u32,
     pub method: HttpMethod,
     pub url: String,
     #[serde(default)] pub headers: Vec<KeyValue>,
@@ -59,7 +60,7 @@ pub struct ApiRequest {
 impl Default for ApiRequest {
     fn default() -> Self {
         Self {
-            id: String::new(), name: "New Request".into(),
+            id: String::new(), name: "New Request".into(), seq: 0,
             method: HttpMethod::Get, url: String::new(),
             headers: Vec::new(), params: Vec::new(), body: String::new(),
             body_type: "none".into(), auth: Auth { kind: "none".into(), ..Default::default() },
@@ -95,5 +96,7 @@ pub struct AppSettings {
     #[serde(default)] pub workspace_dir: String,
     #[serde(default)] pub active_environment: String,
     #[serde(default = "default_timeout")] pub timeout_secs: u64,
+    /// 集合文件格式：bru（Bru Markup Language，默认）或 yaml（OpenCollection YAML）
+    #[serde(default)] pub format: String,
 }
 fn default_timeout() -> u64 { 30 }
