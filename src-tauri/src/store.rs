@@ -19,6 +19,51 @@ pub fn workspace_dir(app: &tauri::AppHandle) -> PathBuf {
     dir
 }
 fn settings_path(app: &tauri::AppHandle) -> PathBuf { data_dir(app).join("settings.json") }
+fn extra_roots_path(app: &tauri::AppHandle) -> PathBuf { data_dir(app).join("extra_roots.json") }
+
+/// 导入的外部 Bruno 仓库根目录列表（不复制文件，直接读取原目录）
+pub fn load_extra_roots(app: &tauri::AppHandle) -> Vec<String> {
+    fs::read_to_string(extra_roots_path(app)).ok()
+        .and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+}
+pub fn save_extra_roots(app: &tauri::AppHandle, roots: &[String]) -> Result<(), String> {
+    fs::write(extra_roots_path(app), serde_json::to_string_pretty(roots).map_err(|e|e.to_string())?)
+        .map_err(|e|e.to_string())
+}
+/// 校验一个目录是否是 Bruno 集合（含 bruno.json 或 collection.bru 或 .bru/.yml 请求）
+pub fn probe_bruno_repo(path: &str) -> Result<(String, usize), String> {
+    let p = PathBuf::from(path);
+    if !p.is_dir() { return Err("目录不存在".into()); }
+    let name = fs::read_to_string(p.join("bruno.json")).ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v.get("name").and_then(|n|n.as_str()).map(|s|s.to_string()))
+        .unwrap_or_else(|| p.file_name().and_then(|n|n.to_str()).unwrap_or("collection").to_string());
+    // 情况 A：本目录本身就是一个集合（含 bruno.json / collection.bru / *.bru）
+    let direct = p.join("bruno.json").exists() || p.join("collection.bru").exists() ||
+        fs::read_dir(&p).ok().map(|rd| rd.flatten().any(|e| {
+            let fp = e.path();
+            let ext=fp.extension().and_then(|x|x.to_str()).unwrap_or("");
+            ext=="bru"||ext=="yml"||ext=="yaml"
+        })).unwrap_or(false);
+    if direct {
+        let cnt = fs::read_dir(&p).ok().map(|rd| rd.flatten().filter(|e| {
+            let fp = e.path();
+            let ext=fp.extension().and_then(|x|x.to_str()).unwrap_or("");
+            ext=="bru"||ext=="yml"||ext=="yaml"
+        }).count()).unwrap_or(0);
+        return Ok((name, cnt));
+    }
+    // 情况 B：本目录是仓库根，子目录里各是集合
+    let mut cnt=0usize;
+    if let Ok(rd)=fs::read_dir(&p) {
+        for e in rd.flatten() {
+            if !e.path().is_dir() { continue; }
+            if e.path().join("bruno.json").exists() || e.path().join("collection.bru").exists() { cnt+=1; }
+        }
+    }
+    if cnt>0 { return Ok((name, cnt)); }
+    Err("目录里没有找到 Bruno 集合（需要 bruno.json / collection.bru / .bru 或 .yml 文件）".into())
+}
 
 pub fn load_settings(app: &tauri::AppHandle) -> AppSettings {
     fs::read_to_string(settings_path(app)).ok()
@@ -52,6 +97,20 @@ fn parse_request_file(path:&Path)->Option<ApiRequest> {
 pub fn load_workspace(app: &tauri::AppHandle) -> Workspace {
     let root = workspace_dir(app);
     let mut ws = Workspace::default();
+    // 先扫描内部工作区，再扫描导入的外部 Bruno 仓库（不复制，直接读）
+    let mut roots: Vec<PathBuf> = vec![root.clone()];
+    for r in load_extra_roots(app) {
+        let p = PathBuf::from(&r);
+        if p.is_dir() { roots.push(p); }
+    }
+    for root in roots { scan_root(&root, &mut ws); }
+    load_env(&root, &mut ws);
+    ws.collections.sort_by(|a,b| a.name.cmp(&b.name));
+    return ws;
+}
+
+/// 扫描一个根目录下的一层集合目录
+fn scan_root(root: &Path, ws: &mut Workspace) {
     if let Ok(entries) = fs::read_dir(&root) {
         for e in entries.flatten() {
             let p=e.path();
@@ -89,12 +148,36 @@ pub fn load_workspace(app: &tauri::AppHandle) -> Workspace {
                 }
             }
             requests.sort_by(|a,b| a.seq.cmp(&b.seq).then_with(||a.name.cmp(&b.name)));
+            // 集合自带 environments/*.bru：以文件名（去掉括号/空格）作为环境名合并
+            let edir = p.join("environments");
+            if let Ok(efs)=fs::read_dir(&edir) {
+                for ef in efs.flatten() {
+                    let ep=ef.path();
+                    if ep.extension().and_then(|x|x.to_str())!=Some("bru") { continue; }
+                    let env_name=ep.file_stem().and_then(|x|x.to_str()).unwrap_or("default").to_string();
+                    if let Ok(txt)=fs::read_to_string(&ep) {
+                        let mut vars=std::collections::BTreeMap::new();
+                        let mut in_vars=false;
+                        for line in txt.lines() {
+                            let t=line.trim();
+                            if t=="vars {" { in_vars=true; continue; }
+                            if t=="}" { in_vars=false; continue; }
+                            if in_vars { if let Some(q)=t.find(':') {
+                                let k=t[..q].trim(); let v=t[q+1..].trim().trim_matches(|c| c == '\'' || c == '"');
+                                if !k.is_empty() { vars.insert(k.to_string(),v.to_string()); }
+                            }}
+                        }
+                        if !vars.is_empty() { ws.environments.entry(env_name).or_insert(vars); }
+                    }
+                }
+            }
             ws.collections.push(Collection { id: dir_name, name, requests });
         }
     }
-    ws.collections.sort_by(|a,b| a.name.cmp(&b.name));
+}
 
-    // 环境变量：Bruno environments/*.bru 的 vars{} + vars:secret 名 + .env 的值
+/// 读环境变量：Bruno environments/*.bru 的 vars{} + 兼容 0.1.0 .env.json
+fn load_env(root: &Path, ws: &mut Workspace) {
     let mut envs = std::collections::BTreeMap::new();
     let edir = root.join("environments");
     if let Ok(files)=fs::read_dir(&edir) {
@@ -128,7 +211,6 @@ pub fn load_workspace(app: &tauri::AppHandle) -> Workspace {
         }
     }
     ws.environments=envs;
-    ws
 }
 
 /// 写集合元数据（Bruno 需要 bruno.json 才认这是集合）
@@ -257,5 +339,36 @@ settings:
     fn safe_name_sanitizes() {
         assert_eq!(safe_name("my:col/lection"),"my_col_lection");
         assert_eq!(safe_name(".."),"collection");
+    }
+
+    #[test]
+    fn probe_external_bruno_repo() {
+        // 单个集合目录
+        let r = probe_bruno_repo(r"C://work//ext-bruno-repo//MyAPI");
+        assert!(r.is_ok(), "{:?}", r);
+        let (name, cnt) = r.unwrap();
+        assert_eq!(name, "External Bruno Repo");
+        assert_eq!(cnt, 2); // list.yml + create.bru
+    }
+    #[test]
+    fn scan_external_collection_reads_both_formats() {
+        let root = std::path::Path::new(r"C://work//ext-bruno-repo");
+        let mut ws = Workspace::default();
+        scan_root(root, &mut ws);
+        assert_eq!(ws.collections.len(), 1);
+        let c = &ws.collections[0];
+        assert_eq!(c.name, "External Bruno Repo");
+        assert_eq!(c.requests.len(), 2);
+        assert!(c.requests.iter().any(|r| r.name == "Get Users"));
+        assert!(c.requests.iter().any(|r| r.name == "Create Post"));
+    }
+    #[test]
+    fn scan_merges_environment() {
+        let root = std::path::Path::new(r"C://work//ext-bruno-repo");
+        let mut ws = Workspace::default();
+        scan_root(root, &mut ws);
+        assert!(ws.environments.contains_key("local"));
+        assert_eq!(ws.environments.get("local").unwrap().get("baseUrl").unwrap(),
+                   "https://jsonplaceholder.typicode.com");
     }
 }

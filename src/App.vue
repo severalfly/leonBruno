@@ -21,6 +21,11 @@ const showSettings = ref(false)
 const showEnv = ref(false)
 const newCollectionName = ref('')
 const sidebarCollapsed = ref(false)
+const showImport = ref(false)
+const importPath = ref('')
+const importProbe = ref('')
+const extraRoots = ref<string[]>([])
+const probing = ref(false)
 const respTab = ref<'body' | 'headers'>('body')
 const search = ref('')
 const toast = ref('')
@@ -160,6 +165,38 @@ async function addCollection() {
     notify('集合已创建')
   } catch (e) { errorMsg.value = String(e) }
 }
+async function loadExtraRoots() {
+  try { extraRoots.value = await invoke<string[]>('list_extra_roots') } catch (e) { /* ignore */ }
+}
+async function probeRepo() {
+  importProbe.value = ''
+  if (!importPath.value.trim()) return
+  probing.value = true
+  try {
+    const [name, count] = await invoke<[string, number]>('probe_bruno_repo', { path: importPath.value.trim() })
+    importProbe.value = `识别到集合「${name}」，含 ${count} 个 .bru/.yml 请求`
+  } catch (e) { importProbe.value = `无法识别：${String(e)}` }
+  finally { probing.value = false }
+}
+async function importRepo() {
+  if (!importPath.value.trim()) return
+  try {
+    extraRoots.value = await invoke<string[]>('add_extra_root', { path: importPath.value.trim() })
+    await loadAll()
+    showImport.value = false
+    importPath.value = ''
+    importProbe.value = ''
+    notify('Bruno 仓库已导入')
+  } catch (e) { errorMsg.value = String(e) }
+}
+async function removeRoot(path: string) {
+  try {
+    extraRoots.value = await invoke<string[]>('remove_extra_root', { path })
+    await loadAll()
+    notify('已移除该仓库')
+  } catch (e) { errorMsg.value = String(e) }
+}
+
 async function openDir() {
   try { await invoke('open_workspace_dir') } catch (e) { errorMsg.value = String(e) }
 }
@@ -184,7 +221,7 @@ const filteredCollections = computed(() => {
   })).filter(c => c.requests.length > 0 || c.name.toLowerCase().includes(q))
 })
 
-onMounted(loadAll)
+onMounted(() => { loadAll(); loadExtraRoots() })
 watch(() => settings.value.active_environment, () => { /* 环境切换即时生效，无需额外状态 */ })
 </script>
 
@@ -211,7 +248,7 @@ watch(() => settings.value.active_environment, () => { /* 环境切换即时生�
         <div v-if="!sidebarCollapsed" class="side-inner">
           <input v-model="search" class="search" placeholder="搜索请求..." />
           <div class="side-section">
-            <div class="side-head"><span>集合</span><button class="mini" @click="openDir">打开目录</button></div>
+            <div class="side-head"><span>集合</span><span><button class="mini" @click="showImport = true">导入仓库</button> <button class="mini" @click="openDir">打开目录</button></span></div>
             <div class="new-col">
               <input v-model="newCollectionName" placeholder="新集合名" @keyup.enter="addCollection" />
               <button class="mini" @click="addCollection">+</button>
@@ -223,7 +260,7 @@ watch(() => settings.value.active_environment, () => { /* 环境切换即时生�
                 <span class="req-name">{{ r.name }}</span>
               </div>
             </div>
-            <div v-if="!filteredCollections.length" class="side-empty">还没有集合<br /><small>在下方新建，或在设置里打开目录放入 .json 请求文件</small></div>
+            <div v-if="!filteredCollections.length" class="side-empty">还没有集合<br /><small>点「导入仓库」加载现有 Bruno 集合，或新建集合 / 粘贴 cURL</small></div>
           </div>
         </div>
         <button class="collapse" @click="sidebarCollapsed = !sidebarCollapsed">{{ sidebarCollapsed ? '›' : '‹' }}</button>
@@ -375,6 +412,21 @@ watch(() => settings.value.active_environment, () => { /* 环境切换即时生�
           </div>
         </div>
         <div class="modal-actions"><button @click="showEnv = false">关闭</button></div>
+      </div>
+    </div>
+
+    <div v-if="showImport" class="overlay" @click.self="showImport = false">
+      <div class="modal">
+        <h3>导入现有 Bruno 仓库</h3>
+        <p class="hint">填入本机已有的 Bruno 集合目录（含 bruno.json / .bru / .yml 的文件夹）。leonBruno 会<strong>直接读取原目录</strong>，不复制、不改动你的 Git 仓库，Bruno 和 leonBruno 可以同时用同一份集合。</p>
+        <input v-model="importPath" class="import-path" placeholder="例如 D://work//my-bruno-api" @keyup.enter="probeRepo" />
+        <button class="mini" :disabled="probing" @click="probeRepo">{{ probing ? '识别中…' : '识别目录' }}</button>
+        <div v-if="importProbe" class="probe-result" :class="{ ok: importProbe.startsWith('识别到') }">{{ importProbe }}</div>
+        <div v-if="extraRoots.length" class="root-list">
+          <div class="root-list-title">已导入的仓库</div>
+          <div v-for="r in extraRoots" :key="r" class="root-item"><span class="root-path">{{ r }}</span><button class="del" @click="removeRoot(r)">移除</button></div>
+        </div>
+        <div class="modal-actions"><button @click="showImport = false">取消</button><button class="primary" :disabled="!importProbe.startsWith('识别到')" @click="importRepo">导入</button></div>
       </div>
     </div>
 

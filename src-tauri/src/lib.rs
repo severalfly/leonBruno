@@ -24,6 +24,26 @@ fn save_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<(), Str
 }
 
 #[tauri::command]
+fn probe_bruno_repo(path: String) -> Result<(String, usize), String> {
+    store::probe_bruno_repo(&path)
+}
+#[tauri::command]
+fn list_extra_roots(app: tauri::AppHandle) -> Vec<String> { store::load_extra_roots(&app) }
+#[tauri::command]
+fn add_extra_root(app: tauri::AppHandle, path: String) -> Result<Vec<String>, String> {
+    let mut roots = store::load_extra_roots(&app);
+    if !roots.contains(&path) { roots.push(path); }
+    store::save_extra_roots(&app, &roots)?;
+    Ok(roots)
+}
+#[tauri::command]
+fn remove_extra_root(app: tauri::AppHandle, path: String) -> Result<Vec<String>, String> {
+    let mut roots = store::load_extra_roots(&app);
+    roots.retain(|r| r != &path);
+    store::save_extra_roots(&app, &roots)?;
+    Ok(roots)
+}
+#[tauri::command]
 fn parse_curl_command(input: String) -> Result<ApiRequest, String> {
     curl::parse_curl(&input)
 }
@@ -68,7 +88,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_workspace, get_settings, save_settings, parse_curl_command,
             save_request, delete_request, create_collection, save_environments,
-            open_workspace_dir, send_request
+            open_workspace_dir, send_request, probe_bruno_repo, list_extra_roots,
+            add_extra_root, remove_extra_root
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

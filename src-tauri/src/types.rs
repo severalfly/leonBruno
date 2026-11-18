@@ -96,7 +96,8 @@ pub struct AppSettings {
     #[serde(default)] pub workspace_dir: String,
     #[serde(default)] pub active_environment: String,
     #[serde(default = "default_timeout")] pub timeout_secs: u64,
-    /// 集合文件格式：bru（Bru Markup Language，默认）或 yaml（OpenCollection YAML）
-    #[serde(default)] pub format: String,
+    /// 集合文件格式：默认 yaml（OpenCollection YAML，Bruno 新推荐）；bru 为传统格式
+    #[serde(default = "default_format")] pub format: String,
 }
 fn default_timeout() -> u64 { 30 }
+fn default_format() -> String { "yaml".into() }

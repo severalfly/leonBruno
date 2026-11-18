@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.1] - 2026-11-18
+
+### 修复与改进
+
+- **修复「baidu.com 发送失败」**：URL 没写协议时原来补 `http://`，`http://baidu.com` 会 301 跳到 https，跨协议重定向时 reqwest 会丢掉 headers 并可能失败。现在补 `https://`。用真实网络测试验证（VM 上直接发 `baidu.com` 与 `https://www.baidu.com` 均返回 200）。
+- **错误可读**：展开 reqwest 的 source 错误链，失败时能看到底层真正原因（DNS / TLS / 连接 / 超时）而不只是一句 `error sending request`。
+- **默认格式改为 YAML**：新装用户默认用 OpenCollection YAML（`.yml`，Bruno 现在推荐的新格式）；仍可切换回 `.bru`。
+- **导入现有 Bruno 仓库**：侧边栏「导入仓库」填本机目录路径，先识别再导入。leonBruno **直接读取原目录**，不复制、不改动 Git 仓库；支持单个集合目录，也支持包含多个集合的仓库根目录。集合自带的 `environments/*.bru` 会一并读入。已导入的仓库可在弹窗里移除。
+
+### 验证
+
+- Rust 单测 14/14：12 个解析测试 + 2 个真实网络测试（`baidu.com` 域名直输、https 直连）。
+- 前端类型检查与构建通过。
+
 ## [0.2.0] - 2026-11-18
 
 ### 集合存储改为 Bruno 原生格式（双向兼容）

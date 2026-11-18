@@ -120,3 +120,11 @@ button.send { min-width: 86px; background: var(--accent); color: #0e1424; border
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-thumb { background: #3a4152; border-radius: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+.import-path { width: 100%; margin: 8px 0; font-family: Consolas, monospace; }
+.probe-result { margin: 8px 0; padding: 7px 9px; border-radius: 6px; background: #3a2024; color: var(--err); font-size: 12px; }
+.probe-result.ok { background: #1e3a2c; color: var(--ok); }
+.root-list { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 8px; }
+.root-list-title { color: var(--dim); font-size: 11px; margin-bottom: 6px; }
+.root-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.root-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11.5px Consolas, monospace; color: var(--dim); }

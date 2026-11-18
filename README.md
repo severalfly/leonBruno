@@ -21,6 +21,7 @@ Bruno 很好用——离线、集合以纯文本 `.bru` 存本地、天然的 Gi
 - 本地集合：Bruno 原生 `.bru` / OpenCollection `.yml`，集合目录含 `bruno.json` + `collection.bru` + `environments/*.bru`，与 Bruno 双向兼容，可直接放进 Git 仓库
 - `{{变量名}}` 插值 + 多环境切换，env 文件存在本地
 - 响应查看：状态码、耗时、大小、Body、Headers
+- **导入现有 Bruno 仓库**：侧边栏「导入仓库」填本机目录，直接读取原目录（不复制、不改你的 Git 仓库），Bruno 与 leonBruno 可共用同一份集合；可识别多层子目录集合
 - 便携模式：exe 同目录 `portable.dat` 即把数据写到 `data/`，不写注册表
 
 ## 技术栈
@@ -40,7 +41,7 @@ npm run tauri:build
 npm run portable
 ```
 
-数据目录：便携模式下是 exe 同目录 `data/`（集合在 `data/workspace/`，设置在 `data/settings.json`）。集合格式在「设置 → 集合格式」里选 `.bru`（默认）或 `.yml`；0.1.0 的旧 `.json` 请求会在打开集合时自动转成 `.bru`。
+数据目录：便携模式下是 exe 同目录 `data/`（集合在 `data/workspace/`，设置在 `data/settings.json`）。集合格式在「设置 → 集合格式」里选，默认 `.yml`（OpenCollection YAML，Bruno 新推荐），也支持 `.bru`（Bru 原生）；0.1.0 的旧 `.json` 请求会在打开集合时自动转成 `.bru`。
 
 **内存与生命周期**：leonBruno 不是常驻托盘程序，关掉窗口进程就退出、内存归零。实测运行期 Working Set 约 **22MB**（Windows VM，`tasklist` 读数），不存在「常驻 60MB」。
 

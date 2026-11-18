@@ -16,11 +16,26 @@ fn interpolate(s: &str, vars: &BTreeMap<String, String>) -> String {
     out
 }
 
+/// reqwest 的 {} 只给最外层，展开 source 链才能看到 DNS/TLS/连接/超时的真正原因。
+fn err_chain(e: &reqwest::Error) -> String {
+    let mut out = format!("{}", e);
+    let mut cur: Option<&(dyn std::error::Error + 'static)> = std::error::Error::source(e);
+    let mut n = 0;
+    while let Some(src) = cur {
+        n += 1;
+        out.push_str(&format!("\n  [{}] {}", n, src));
+        cur = src.source();
+        if n >= 8 { break; }
+    }
+    out
+}
+
 pub async fn execute(req: ApiRequest, env: BTreeMap<String, String>, timeout_secs: u64) -> Result<ApiResponse, String> {
     let method = reqwest::Method::from_bytes(req.method.as_str().as_bytes()).map_err(|e| e.to_string())?;
     let mut url = interpolate(&req.url, &env);
-    // 没有 scheme 时补 http
-    if !url.starts_with("http://") && !url.starts_with("https://") { url = format!("http://{}", url); }
+    // 没有 scheme 时补 https（现代站点普遍 https，http 会多一次 301 跳转且
+    // 在跨协议重定向时 reqwest 会丢掉 Authorization header）
+    if !url.starts_with("http://") && !url.starts_with("https://") { url = format!("https://{}", url); }
     if !req.params.is_empty() {
         let have_q = url.contains('?');
         let mut parts = Vec::new();
@@ -41,7 +56,7 @@ pub async fn execute(req: ApiRequest, env: BTreeMap<String, String>, timeout_sec
     // 忽略证书错误（内部测试环境常见自签证书）
     #[allow(deprecated)]
     { builder = builder.danger_accept_invalid_certs(true); }
-    let client = builder.build().map_err(|e| e.to_string())?;
+    let client = builder.build().map_err(|e| err_chain(&e))?;
 
     let mut rb = client.request(method, &url);
     for h in req.headers.iter().filter(|h| h.enabled && !h.key.trim().is_empty()) {
@@ -64,13 +79,13 @@ pub async fn execute(req: ApiRequest, env: BTreeMap<String, String>, timeout_sec
     }
 
     let started = Instant::now();
-    let resp = rb.send().await.map_err(|e| format!("{}", e))?;
+    let resp = rb.send().await.map_err(|e| err_chain(&e))?;
     let status = resp.status().as_u16();
     let status_text = resp.status().canonical_reason().unwrap_or("").to_string();
     let headers: Vec<KeyValue> = resp.headers().iter().map(|(k, v)| KeyValue {
         key: k.to_string(), value: v.to_str().unwrap_or("<binary>").to_string(), enabled: true,
     }).collect();
-    let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
+    let bytes = resp.bytes().await.map_err(|e| err_chain(&e))?;
     let elapsed = started.elapsed().as_millis();
     let size = bytes.len();
     let text = String::from_utf8_lossy(&bytes).to_string();
@@ -87,3 +102,5 @@ fn urlencoding(s: &str) -> String {
     }
     out
 }
+
+
